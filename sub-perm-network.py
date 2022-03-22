@@ -138,12 +138,12 @@ class SBox:
         bits = self._mix_key(bits, self.keys[self.n_rounds])
 
         for i in range(self.n_rounds-1, -1, -1):
-            bits = self.dnour(bits, i)
+            bits = self.dnuor(bits, i)
             verbose_print(f"Decrypt: Round {self.n_rounds - (i)}: {bits:x}")
 
         return bits
 
-    def dnour(self, input_val, cur_round):
+    def dnuor(self, input_val, cur_round):
         """ """
         # second last round we do not permute
         verbose_print(f"dnour() => key index:{cur_round}, key:{self.keys[cur_round]}, msg:{input_val:x}")
@@ -243,7 +243,7 @@ def tests():
     # dnour should invert round
     msg = 0xABCD
     r1 = sbox.round(msg, 0)
-    undone = sbox.dnour(r1, 0)
+    undone = sbox.dnuor(r1, 0)
     assert(undone == msg)
 
     msg = "Junlin, I have created our sbox encryption implementation - woohoo!"

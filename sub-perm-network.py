@@ -1,4 +1,3 @@
-from tabnanny import verbose
 import time
 import random
 

@@ -1,9 +1,9 @@
-
+from tabnanny import verbose
 import time
 import random
 
 DEBUG = True
-VERBOSE = False
+VERBOSE = True
 
 def debug_print(*args, **kwargs):
     if DEBUG:
@@ -50,6 +50,10 @@ class SBox:
             0xE: 0x0,
             0xF: 0x7,
         }
+
+        # invert our sbox for decrypt
+        self.decrypt_sub_lookup = {v: k for k, v in self.sub_lookup.items()}
+        
 
         self.perm_lookup = {
             1: 1,
@@ -143,18 +147,23 @@ class SBox:
     def dnour(self, input_val, cur_round):
         """ """
         # second last round we do not permute
+        verbose_print(f"dnour() => key index:{cur_round}, key:{self.keys[cur_round]}, msg:{input_val:x}")
+
         if cur_round != self.n_rounds - 1:
             input_val = self._permute(input_val)
 
-        input_val = self._substitute(input_val)
+        input_val = self._substitute(input_val, self.decrypt_sub_lookup)
         input_val = self._mix_key(input_val, self.keys[cur_round])
+        verbose_print(f"key xored: {input_val:x}")
 
         return input_val
 
     def round(self, input_val, cur_round):
         """ """
+        verbose_print(f"round() => key index:{cur_round}, key:{self.keys[cur_round]}, msg:{input_val:x}")
         input_val = self._mix_key(input_val, self.keys[cur_round])
-        input_val = self._substitute(input_val)
+        verbose_print(f"key xored: {input_val:x}")
+        input_val = self._substitute(input_val, self.sub_lookup)
 
         # second last round we do not permute
         if cur_round != self.n_rounds - 1:
@@ -162,21 +171,29 @@ class SBox:
 
         return input_val
 
-    def _substitute(self, message):
+    def _substitute(self, message, sub_dict):
         """ """
         ret_val = 0
         mask = 0xF
 
+        verbose_print(f"Substitute start: {message:x}")
         for idx in range(0, int(self.BITS_SIZE/4)):
-            ret_val |= self.sub_lookup[(message & mask) >> (idx*4)]
+            cur_val = (message & mask)
+            shift = idx*4
+            ret_val |= (sub_dict[cur_val >> shift] << (idx*4))
+            verbose_print(f"idx: {idx}, mask:{mask:x} cur_val: {cur_val:x}, lookup:{cur_val>>shift:x}, replace:{sub_dict[cur_val >> shift]}, ret_val: {ret_val:x}")
             mask <<= 4
 
-        return message
+        verbose_print(f"Substitute done: {ret_val:x}")
+
+        return ret_val
 
     def _permute(self, message):
         """ """
         ret_val = 0
         mask = 0x8000
+
+        verbose_print(f"permute() => {message:x}")
 
         # permute lookup is 1 indexed, so we go from [16 -> 1]
         # leftmost bit is 1, rightmost bit is 16
@@ -193,6 +210,8 @@ class SBox:
                 verbose_print(f"permute:: idx: {idx}, to:{(self.perm_lookup[idx])}, bit_val: {curBit}, shift: {shift}, mask: {mask:x}, location: {location:b} ret_val:{ret_val:b}")
 
             mask >>= 1
+        
+        verbose_print(f"permute() => Done: {ret_val:x}")
 
         return ret_val
 
@@ -201,6 +220,39 @@ class SBox:
         return (bits ^ key)
 
 
-sbox = SBox(4, 43)
-encrypted = sbox.encrypt_decrypt("Junlin, I have created our sbox encryption implementation - woohoo!")
-sbox.encrypt_decrypt(encrypted, False)
+
+def tests():
+    sub_lookup_expected = {
+        0x0123: 0xe4d1,
+        0x4567: 0x2fb8,
+        0x89AB: 0x3a6c,
+        0xCDEF: 0x5907,
+        0x000F: 0xeee7,
+        0x1000: 0x4eee
+    }
+
+    sbox = SBox(4, 43)
+
+    for input, expected in sub_lookup_expected.items():
+        val = sbox._substitute(input, sbox.sub_lookup)
+        assert(val == expected)
+
+    for expected, input in sub_lookup_expected.items():
+        val = sbox._substitute(input, sbox.decrypt_sub_lookup)
+        assert(val == expected)
+
+    # dnour should invert round
+    msg = 0xABCD
+    r1 = sbox.round(msg, 0)
+    undone = sbox.dnour(r1, 0)
+    assert(undone == msg)
+
+    msg = "Junlin, I have created our sbox encryption implementation - woohoo!"
+    encrypted = sbox.encrypt_decrypt(msg)
+    decrypted = sbox.encrypt_decrypt(encrypted, False)
+    assert(decrypted == msg)
+
+    
+# encrypted = sbox.encrypt_decrypt("Junlin, I have created our sbox encryption implementation - woohoo!")
+# sbox.encrypt_decrypt(encrypted, False)
+tests()

@@ -254,4 +254,4 @@ def tests():
     
 # encrypted = sbox.encrypt_decrypt("Junlin, I have created our sbox encryption implementation - woohoo!")
 # sbox.encrypt_decrypt(encrypted, False)
-tests()
+# tests()

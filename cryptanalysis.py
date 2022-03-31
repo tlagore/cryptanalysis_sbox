@@ -2,7 +2,7 @@ from subpermnetwork import SPN
 
 
 # 43 just lets us keep the random seed so we know expected keys
-spn = SPN(4, 43, [516,516,516,516,516])
+spn = SPN(4, keys=[516,516,516,516,516])
 
 msgs = [0xABCD, 0xDEF1, 0x1234, 0x5125, 0x3151]
 

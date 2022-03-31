@@ -2,7 +2,7 @@ from subpermnetwork import SPN
 from collections import Counter
 
 BITS_SIZE = SPN.BITS_SIZE
-spn = SPN(4, [516, 516, 516, 516, 516])
+spn = SPN(4, keys=[516, 516, 516, 516, 516])
 SBOX = spn.sub_lookup
 
 

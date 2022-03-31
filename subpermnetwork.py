@@ -16,20 +16,20 @@ def verbose_print(*args, **kwargs):
 class SPN:
     BITS_SIZE = 16
 
-    def __init__(self, n_rounds, keys):
-        # random.seed(random_key)
-        self.keys = keys
-        assert(len(keys) == n_rounds + 1)
+    def __init__(self, n_rounds, random_key=time.time(), keys=None):
+        random.seed(random_key)
 
-        # generate random keys
-        # [ self.keys.append(random.randint(0, 2**self.BITS_SIZE)) for _ in range(n_rounds+1) ]
+        if keys is not None:
+            self.keys = keys
+            assert(len(keys) == n_rounds + 1, f"Supplied keys were not of proper length for {n_rounds} spn.")
+        else:
+            # generate random keys
+            [ self.keys.append(random.randint(0, 2**self.BITS_SIZE)) for _ in range(n_rounds+1) ]
 
-        # for idx, key in enumerate(self.keys):
-        #     debug_print(f'key {idx+1}: {key:x}')
+            for idx, key in enumerate(self.keys):
+                debug_print(f'key {idx+1}: {key:x}')
 
-        # self.keys = [5053, 37497, 18865, 60625, 48480]
-
-        # print(f'KEYS: {self.keys}')
+        print(f'KEYS: {self.keys}')
 
         # number of bytes that we can handle in 1 round
         self.block_size = int(self.BITS_SIZE / 8)
@@ -101,6 +101,8 @@ class SPN:
 
     def _encrypt(self, bits):
         """ """
+        debug_print(f"ENCRYPTING: '{bits:x}'")
+
         for i in range(self.n_rounds):
             bits = self.round(bits, i)
             verbose_print(f"Encrypt: Round {i+1}: {bits:x}")
@@ -108,7 +110,14 @@ class SPN:
         bits = self._mix_key(bits, self.keys[self.n_rounds])
         return bits
 
-    def encrypt_decrypt(self, message, encrypt=True):
+    def encrypt_decrypt_ascii(self, message, encrypt=True):
+        """
+        encrypt ascii text
+
+        if encrypt is set to true, encrypts the message,
+        if encrypt is set to false, decrypts the message (calling without setting assumes encrypt) 
+        """
+
         if encrypt:
             debug_print(f"ENCRYPTING: '{message}'")
         else:
@@ -120,6 +129,7 @@ class SPN:
         while len(m) > 0:
             block = m[0:self.block_size]
             m = m[self.block_size:]
+
             bits = self._str_to_bits(block)
 
             if encrypt:
@@ -137,9 +147,17 @@ class SPN:
             debug_print(f"Decrypted message:\nhex:{c_bits:x}\nascii:{c}")
 
         return c
+        
+    def encrypt(self, bits):
+        return self._encrypt(bits)
+
+    def decrypt(self, bits):
+        return self._decrypt(bits)
 
     def _decrypt(self, bits):
         """ """
+        debug_print(f"DECRYPTING: '{bits:x}'")
+
         bits = self._mix_key(bits, self.keys[self.n_rounds])
 
         for i in range(self.n_rounds-1, -1, -1):
@@ -222,41 +240,3 @@ class SPN:
     def _mix_key(self, bits, key):
         """ simple xor """
         return (bits ^ key)
-
-
-
-def tests():
-    sub_lookup_expected = {
-        0x0123: 0xe4d1,
-        0x4567: 0x2fb8,
-        0x89AB: 0x3a6c,
-        0xCDEF: 0x5907,
-        0x000F: 0xeee7,
-        0x1000: 0x4eee
-    }
-
-    spn = SPN(4, [516, 516, 516, 516, 516])
-
-    for input, expected in sub_lookup_expected.items():
-        val = spn._substitute(input, spn.sub_lookup)
-        assert(val == expected)
-
-    for expected, input in sub_lookup_expected.items():
-        val = spn._substitute(input, spn.decrypt_sub_lookup)
-        assert(val == expected)
-
-    # dnour should invert round
-    msg = 0xABCD
-    r1 = spn.round(msg, 0)
-    undone = spn.dnuor(r1, 0)
-    assert(undone == msg)
-
-    msg = "Junlin, I have created our sbox encryption implementation - woohoo!"
-    encrypted = spn.encrypt_decrypt(msg)
-    decrypted = spn.encrypt_decrypt(encrypted, False)
-    assert(decrypted == msg)
-
-    
-# encrypted = sbox.encrypt_decrypt("Junlin, I have created our sbox encryption implementation - woohoo!")
-# sbox.encrypt_decrypt(encrypted, False)
-tests()

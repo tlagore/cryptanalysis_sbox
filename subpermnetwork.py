@@ -1,8 +1,8 @@
 import time
 import random
 
-DEBUG = True
-VERBOSE = True
+DEBUG = False
+VERBOSE = False
 
 def debug_print(*args, **kwargs):
     if DEBUG:
@@ -13,18 +13,23 @@ def verbose_print(*args, **kwargs):
     if VERBOSE:
         debug_print(*args, **kwargs)
 
-class SBox:
+class SPN:
     BITS_SIZE = 16
 
-    def __init__(self, n_rounds, random_key = time.time()):
-        random.seed(random_key)
-        self.keys = []
+    def __init__(self, n_rounds, keys):
+        # random.seed(random_key)
+        self.keys = keys
+        assert(len(keys) == n_rounds + 1)
 
         # generate random keys
-        [ self.keys.append(random.randint(0, 2**self.BITS_SIZE)) for _ in range(n_rounds+1) ]
+        # [ self.keys.append(random.randint(0, 2**self.BITS_SIZE)) for _ in range(n_rounds+1) ]
 
-        for idx, key in enumerate(self.keys):
-            debug_print(f'key {idx+1}: {key:x}')
+        # for idx, key in enumerate(self.keys):
+        #     debug_print(f'key {idx+1}: {key:x}')
+
+        # self.keys = [5053, 37497, 18865, 60625, 48480]
+
+        # print(f'KEYS: {self.keys}')
 
         # number of bytes that we can handle in 1 round
         self.block_size = int(self.BITS_SIZE / 8)
@@ -230,28 +235,28 @@ def tests():
         0x1000: 0x4eee
     }
 
-    sbox = SBox(4, 43)
+    spn = SPN(4, [516, 516, 516, 516, 516])
 
     for input, expected in sub_lookup_expected.items():
-        val = sbox._substitute(input, sbox.sub_lookup)
+        val = spn._substitute(input, spn.sub_lookup)
         assert(val == expected)
 
     for expected, input in sub_lookup_expected.items():
-        val = sbox._substitute(input, sbox.decrypt_sub_lookup)
+        val = spn._substitute(input, spn.decrypt_sub_lookup)
         assert(val == expected)
 
     # dnour should invert round
     msg = 0xABCD
-    r1 = sbox.round(msg, 0)
-    undone = sbox.dnuor(r1, 0)
+    r1 = spn.round(msg, 0)
+    undone = spn.dnuor(r1, 0)
     assert(undone == msg)
 
     msg = "Junlin, I have created our sbox encryption implementation - woohoo!"
-    encrypted = sbox.encrypt_decrypt(msg)
-    decrypted = sbox.encrypt_decrypt(encrypted, False)
+    encrypted = spn.encrypt_decrypt(msg)
+    decrypted = spn.encrypt_decrypt(encrypted, False)
     assert(decrypted == msg)
 
     
 # encrypted = sbox.encrypt_decrypt("Junlin, I have created our sbox encryption implementation - woohoo!")
 # sbox.encrypt_decrypt(encrypted, False)
-# tests()
+tests()

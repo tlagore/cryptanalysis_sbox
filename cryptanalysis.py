@@ -6,22 +6,15 @@ from itertools import product as cartesian_product
 from time import time
 
 
-DEBUG = True
 BITS_SIZE = SPN.BITS_SIZE
 N_SBOX_PER_ROUND = SPN.N_SBOX_PER_ROUND
-# keys = [516, 516, 516, 516, 516]
+# keys = [1, 1, 1, 1, 1]
 keys = [randrange(2**16) for _ in range(4 + 1)]
 spn = SPN(4, keys=keys)
 SBOX: dict = spn.sub_lookup
 SBOX_INVERSED: dict = spn.decrypt_sub_lookup
 SBOX_SIZE: int = int(log2(len(SBOX)))  # Should be 4 for this project
 N_ROUNDS = spn.n_rounds
-
-
-
-def debug_print(*args, **kwargs):
-    if DEBUG:
-        print(*args, **kwargs)
 
 
 def diff_table(sbox: dict) -> Counter:
@@ -34,7 +27,6 @@ def diff_table(sbox: dict) -> Counter:
 
 
 difference_distribution_table: Counter = diff_table(SBOX)
-# print(difference_distribution_table)
 
 
 def most_probable_diff_pairs() -> dict:
@@ -51,7 +43,6 @@ def most_probable_diff_pairs() -> dict:
             diff_pairs[in_diff] = ([out_diff], freq / BITS_SIZE)
         elif freq / BITS_SIZE == diff_pairs[in_diff][1]:
             diff_pairs[in_diff][0].append(out_diff)
-    # del diff_pairs[0]  # Zero differential won't give us any information, so we remove it.
     return diff_pairs
 
 
@@ -60,7 +51,8 @@ most_probable_differential: OrderedDict = most_probable_diff_pairs()
 
 def most_probable_output_diff(input_diff):
     diffs, prob = most_probable_differential[input_diff]
-    return choice(diffs), prob
+    return diffs[0], prob
+    # return choice(diffs), prob
 
 
 def chop_into_sbox_size(binary_num: int) -> list[int]:
@@ -84,7 +76,6 @@ def stitch_num_list(num_list: list[int]) -> int:
 
 
 def greedy_output_diff_and_probability(input_diff) -> (int, int):
-    # input_diff = active_input_diff << (randrange(N_SBOX_PER_ROUND) * SBOX_SIZE)
     output_diff_and_probabilities = [most_probable_output_diff(in_diff) for in_diff in
                                      chop_into_sbox_size(input_diff)]
     output_diffs, probabilities = zip(*output_diff_and_probabilities)
@@ -92,14 +83,12 @@ def greedy_output_diff_and_probability(input_diff) -> (int, int):
 
 
 def differential_characteristic_and_probability(input_diff: int) -> (int, int, int):
-    # debug_print(f'Greedy search with input diff: {format(input_diff, "04x")}')
     current_round_input = input_diff
     current_prob = 1
     for r in range(N_ROUNDS - 1):
         v, prob = greedy_output_diff_and_probability(current_round_input)
         current_round_input = spn.permute(v)
         current_prob *= prob
-        # debug_print(f'Round {r} -- next round input: {format(current_round_input, "04x")}, accumulated probability: {current_prob}')
     return input_diff, current_round_input, current_prob
 
 
@@ -118,7 +107,6 @@ def extract_partial_keys(starting_input_diff):
     active_sbox_index = [index for index, diff in enumerate(expected_diffs_list) if diff != 0]
     expected_active_diffs_list = [expected_diffs_list[i] for i in active_sbox_index]
     inactive_sbox_index = [index for index, diff in enumerate(expected_diffs_list) if diff == 0]
-    # print(f'Input {format(input_diff, "04x")} activate sboxes: {active_sbox_index}')
     all_possible_keys = possible_target_partial_subkeys(expected_output_diff)
     best_guess = 0
     best_n_right_pairs = 0
@@ -143,14 +131,10 @@ def extract_partial_keys(starting_input_diff):
             best_guess = key
             best_n_right_pairs = n_right_pairs
 
-    # print(f'Best guess: {format(best_guess, "04x")}, right pairs #: {best_n_right_pairs}')
     res = chop_into_sbox_size(best_guess)
     for i in inactive_sbox_index:
         res[i] = None
     return res
-
-
-# extract_partial_keys(0x0b00)
 
 
 promising_starts = list(most_probable_differential.keys())[1:]  # Drop 0
@@ -158,15 +142,16 @@ promising_starts = list(most_probable_differential.keys())[1:]  # Drop 0
 
 def attack():
     last_key = [None] * N_SBOX_PER_ROUND
-    for start in promising_starts:
+    for start_input in promising_starts:
         if None not in last_key:
             break
-        full_inputs = [start << i * SBOX_SIZE for i in range(N_SBOX_PER_ROUND)]
+        full_inputs = [start_input << i * SBOX_SIZE for i in range(N_SBOX_PER_ROUND)]
         candidates = [differential_characteristic_and_probability(input_diff) for input_diff in full_inputs]
-        print(candidates)
         input_diff, output_diff, probability = max(candidates, key=lambda t: t[2])
         active_sbox_index = [index for index, diff in enumerate(chop_into_sbox_size(output_diff)) if diff != 0]
         if all([last_key[i] for i in active_sbox_index]):
+            continue
+        if probability < .005:
             continue
         partial_keys = extract_partial_keys(input_diff)
         for i, key in enumerate(partial_keys):

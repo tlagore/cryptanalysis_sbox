@@ -10,7 +10,7 @@ for msg in msgs:
     ciphertext = spn.encrypt(msg)
     decrypted = spn.decrypt(ciphertext)
     print(f"Decrypted: {decrypted:x}")
-    assert(msg == decrypted, f"Test fail! Expected: 0x{msg:x} but got 0x{decrypted:x}")
+    assert msg == decrypted, f"Test fail! Expected: 0x{msg:x} but got 0x{decrypted:x}"
 
 def tests():
     """ these tests will currently likely break """

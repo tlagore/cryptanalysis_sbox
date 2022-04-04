@@ -15,12 +15,16 @@ class DifferentialCryptanalysis:
         self.SBOX: dict = spn.sub_lookup
         self.SBOX_INVERSED = {v: k for k, v in self.SBOX.items()}
         self.N_ROUNDS = n_rounds
-        self.difference_distribution_table: Counter = self._diff_table(self.SBOX)
+        self.difference_distribution_table: Counter = self._diff_table()
         self.most_probable_differential: OrderedDict = self._most_probable_diff_pairs()
         self.promising_starts = list(self.most_probable_differential.keys())[1:]  # Drop 0
 
-    def _diff_table(self, sbox: dict) -> Counter:
+    # Sbox-level
+
+    def _diff_table(self) -> Counter:
+        """Return the Difference Distribution Table for the sbox. For performance, we only keep the differential pairs that occurs."""
         BITS_SIZE = self.BITS_SIZE
+        sbox = self.SBOX
         all_input_pairs = [(i, j) for i in range(BITS_SIZE) for j in
                            range(BITS_SIZE)]  # [(0, 0), (0, 1), ..., (1, 0), ..., (14, 15), ..., (15, 14), (15, 15)]
         corresponding_output_pairs = [(sbox[pair[0]], sbox[pair[1]]) for pair in all_input_pairs]
@@ -30,11 +34,11 @@ class DifferentialCryptanalysis:
         diff_counter = Counter(zip(input_diffs, corresponding_output_diffs))
         return diff_counter
 
-    def _most_probable_diff_pairs(self) -> dict:
+    def _most_probable_diff_pairs(self) -> OrderedDict:
         """
-        Given a sbox lookup, return a dictionary of the most probable differential pairs (delta_X, delta_Y) and their probability.
-        If multiple output difference has the same probabilities, include them all.
-        :param sbox: a sbox lookup dictionary
+        Based on the Difference Distribution Table (_diff_table), pick the most probable output differences for each input difference, and include the probability as well.
+        If multiple output difference has the same highest probabilities, include them all.
+        The returned dictionary is ordered by the probability of the (input_diff, output_diff) pairs.
         :return: {input_difference: ([most_probable_output_difference], probability)}
         """
         BITS_SIZE = self.BITS_SIZE
@@ -47,10 +51,17 @@ class DifferentialCryptanalysis:
                 diff_pairs[in_diff][0].append(out_diff)
         return diff_pairs
 
-    def _most_probable_output_diff(self, input_diff: int) -> (int, float):
+    def _sbox_level_most_probable_output_diff_and_probability(self, input_diff: int) -> (int, float):
+        """
+        Based on the Most Probable Differential Paris (_most_probable_diff_pairs), given an input difference, return the most probable output difference and its probability.
+        Strategy 1: If there are multiple output differences has the same (highest) probability, randomly choose one.
+        Strategy 2: Always pick the first one. Makes the algorithm deterministic.
+        :param input_diff: Input difference for a SBOX
+        :return: (most_probable_output_diff, probability)
+        """
         diffs, prob = self.most_probable_differential[input_diff]
-        return diffs[0], prob
-        # return choice(diffs), prob
+        return diffs[0], prob  # Strategy 2
+        # return choice(diffs), prob  # Strategy 1
 
     def _chop_into_sbox_size(self, binary_num: int) -> list[int]:
         """0b0000101100000000 -> [0b0000, 0b1011, 0b0000, 0b0000]"""
@@ -70,17 +81,28 @@ class DifferentialCryptanalysis:
             res += val << ((lst_len - idx - 1) * self.SBOX_SIZE)
         return res
 
-    def _greedy_output_diff_and_probability(self, input_diff) -> (int, int):
-        output_diff_and_probabilities = [self._most_probable_output_diff(in_diff) for in_diff in
+    def _round_level_most_probable_output_diff_and_probability(self, input_diff) -> (int, int):
+        """
+        Given an input difference (delta_U) to a round, return the most probable output difference (delta_V) and its probability.
+        :param input_diff: Input difference for a *ROUND* (instead of a sbox)
+        :return: (most_probable_output_diff, probability)
+        """
+        output_diff_and_probabilities = [self._sbox_level_most_probable_output_diff_and_probability(in_diff) for in_diff in
                                          self._chop_into_sbox_size(input_diff)]
         output_diffs, probabilities = zip(*output_diff_and_probabilities)
         return self._stitch_num_list(output_diffs), prod(probabilities)
 
-    def _differential_characteristic_and_probability(self, input_diff: int) -> (int, int, int):
+    def _greedy_differential_characteristic_and_probability(self, input_diff: int) -> (int, int, int):
+        """
+        Given an initial input difference (delta_U_1) to the system, walk through R-1 rounds and return the "best" output diff based on a greedy strategy.
+        At each round, we find the most probable output diff for this round (greedy). But that doesn't guarantee the end result would be the best.
+        :param input_diff: The delta_U_1, aka. delta_P
+        :return: (input_diff, greedy_output_diff, probability)
+        """
         current_round_input = input_diff
         current_prob = 1
         for r in range(self.N_ROUNDS - 1):
-            v, prob = self._greedy_output_diff_and_probability(current_round_input)
+            v, prob = self._round_level_most_probable_output_diff_and_probability(current_round_input)
             current_round_input = self.spn.permute(v)
             current_prob *= prob
         return input_diff, current_round_input, current_prob
@@ -92,7 +114,8 @@ class DifferentialCryptanalysis:
         return [self._stitch_num_list(key_list) for key_list in cartesian_product(*possible_subkeys_in_list)]
 
     def _extract_partial_keys(self, starting_input_diff):
-        input_diff, expected_output_diff, prob = self._differential_characteristic_and_probability(starting_input_diff)
+        input_diff, expected_output_diff, prob = self._greedy_differential_characteristic_and_probability(
+            starting_input_diff)
         expected_diffs_list = self._chop_into_sbox_size(expected_output_diff)
         active_sbox_index = [index for index, diff in enumerate(expected_diffs_list) if diff != 0]
         expected_active_diffs_list = [expected_diffs_list[i] for i in active_sbox_index]
@@ -132,9 +155,10 @@ class DifferentialCryptanalysis:
             if None not in last_key:
                 break
             full_inputs = [start_input << i * self.SBOX_SIZE for i in range(self.N_SBOX_PER_ROUND)]
-            candidates = [self._differential_characteristic_and_probability(input_diff) for input_diff in full_inputs]
+            candidates = [self._greedy_differential_characteristic_and_probability(input_diff) for input_diff in full_inputs]
             input_diff, output_diff, probability = max(candidates, key=lambda t: t[2])
-            active_sbox_index = [index for index, diff in enumerate(self._chop_into_sbox_size(output_diff)) if diff != 0]
+            active_sbox_index = [index for index, diff in enumerate(self._chop_into_sbox_size(output_diff)) if
+                                 diff != 0]
             if all([last_key[i] for i in active_sbox_index]):
                 continue
             if probability < .005:

@@ -16,7 +16,7 @@ class DifferentialCryptanalysis:
         self.SBOX_INVERSED = {v: k for k, v in self.SBOX.items()}
         self.N_ROUNDS = n_rounds
         self.difference_distribution_table: Counter = self._diff_table()
-        self.most_probable_differential: OrderedDict = self._most_probable_diff_pairs()
+        self.most_probable_differential: OrderedDict = self._sbox_level_most_probable_diff_pairs()
         self.promising_starts = list(self.most_probable_differential.keys())[1:]  # Drop 0
 
     # Sbox-level
@@ -34,7 +34,7 @@ class DifferentialCryptanalysis:
         diff_counter = Counter(zip(input_diffs, corresponding_output_diffs))
         return diff_counter
 
-    def _most_probable_diff_pairs(self) -> OrderedDict:
+    def _sbox_level_most_probable_diff_pairs(self) -> OrderedDict:
         """
         Based on the Difference Distribution Table (_diff_table), pick the most probable output differences for each input difference, and include the probability as well.
         If multiple output difference has the same highest probabilities, include them all.
@@ -107,13 +107,23 @@ class DifferentialCryptanalysis:
             current_prob *= prob
         return input_diff, current_round_input, current_prob
 
-    def _possible_target_partial_subkeys(self, expected_output_diffs):
-        expected_diffs_list = self._chop_into_sbox_size(expected_output_diffs)
+    def _possible_target_partial_subkeys(self, expected_output_diff):
+        """
+        Return all the possible subkeys. The parts of subkeys that corresponds to non-active sboxes would all be 0.
+        :param expected_output_diff: expected_output_diff of the whole system (instead of a round or a sbox).
+        :return: e.g., [0100, 0200, ..., 0F00, 0110, ... 0F10, ..., 0010, ... 00F0]
+        """
+        expected_diffs_list = self._chop_into_sbox_size(expected_output_diff)
         possible_subkeys_in_list = map(lambda n: [0] if n == 0 else list(range(2 ** self.SBOX_SIZE)),
                                        expected_diffs_list)
         return [self._stitch_num_list(key_list) for key_list in cartesian_product(*possible_subkeys_in_list)]
 
     def _extract_partial_keys(self, starting_input_diff):
+        """
+        Given an input difference to the system, returns a guess on a subset of the last-round-subkeys.
+        :param starting_input_diff: The delta_U_1, aka. delta_P
+        :return: A guess on the partial subkeys that are influenced by the expected output difference.
+        """
         input_diff, expected_output_diff, prob = self._greedy_differential_characteristic_and_probability(
             starting_input_diff)
         expected_diffs_list = self._chop_into_sbox_size(expected_output_diff)
@@ -170,11 +180,10 @@ class DifferentialCryptanalysis:
         return self._stitch_num_list(last_key)
 
 
-# keys = [1, 1, 1, 1, 1]
 keys = [randrange(2 ** 16) for _ in range(4 + 1)]
 spn = SPN(4, keys=keys)
 dc = DifferentialCryptanalysis(4, 4, 4, spn)
-print(f'SPN keys: {keys}')
+print(f'Randomly generated SPN keys: {keys}')
 start = time()
 retrieved_last_round_key = dc.attack()
 end = time()

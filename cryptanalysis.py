@@ -1,7 +1,7 @@
 from subpermnetwork import SPN
 from collections import Counter, OrderedDict
 from random import sample, choice, randrange
-from math import log2, prod
+from math import prod
 from itertools import product as cartesian_product
 from time import time
 
@@ -18,8 +18,6 @@ class DifferentialCryptanalysis:
         self.difference_distribution_table: Counter = self._diff_table()
         self.most_probable_differential: OrderedDict = self._sbox_level_most_probable_diff_pairs()
         self.promising_starts = list(self.most_probable_differential.keys())[1:]  # Drop 0
-
-    # Sbox-level
 
     def _diff_table(self) -> Counter:
         """Return the Difference Distribution Table for the sbox. For performance, we only keep the differential pairs that occurs."""
@@ -87,7 +85,8 @@ class DifferentialCryptanalysis:
         :param input_diff: Input difference for a *ROUND* (instead of a sbox)
         :return: (most_probable_output_diff, probability)
         """
-        output_diff_and_probabilities = [self._sbox_level_most_probable_output_diff_and_probability(in_diff) for in_diff in
+        output_diff_and_probabilities = [self._sbox_level_most_probable_output_diff_and_probability(in_diff) for in_diff
+                                         in
                                          self._chop_into_sbox_size(input_diff)]
         output_diffs, probabilities = zip(*output_diff_and_probabilities)
         return self._stitch_num_list(output_diffs), prod(probabilities)
@@ -118,14 +117,17 @@ class DifferentialCryptanalysis:
                                        expected_diffs_list)
         return [self._stitch_num_list(key_list) for key_list in cartesian_product(*possible_subkeys_in_list)]
 
-    def _extract_partial_keys(self, starting_input_diff):
+    def _extract_partial_keys(self, input_diff, expected_output_diff=None, probability=None):
         """
         Given an input difference to the system, returns a guess on a subset of the last-round-subkeys.
-        :param starting_input_diff: The delta_U_1, aka. delta_P
+        :param input_diff: The delta_U_1, aka. delta_P
+        :param expected_output_diff:
+        :param probability:
         :return: A guess on the partial subkeys that are influenced by the expected output difference.
         """
-        input_diff, expected_output_diff, prob = self._greedy_differential_characteristic_and_probability(
-            starting_input_diff)
+        if expected_output_diff is None or probability is None:
+            input_diff, expected_output_diff, prob = self._greedy_differential_characteristic_and_probability(
+                input_diff)
         expected_diffs_list = self._chop_into_sbox_size(expected_output_diff)
         active_sbox_index = [index for index, diff in enumerate(expected_diffs_list) if diff != 0]
         expected_active_diffs_list = [expected_diffs_list[i] for i in active_sbox_index]
@@ -134,7 +136,7 @@ class DifferentialCryptanalysis:
         best_guess = 0
         best_n_right_pairs = 0
         C = 10
-        sample_size = int(C // prob)
+        sample_size = int(C // probability)
         X1_samples = sample(range(2 ** (self.N_SBOX_PER_ROUND * self.SBOX_SIZE)), sample_size)
         cipher_text_pairs = [(self.spn.encrypt(x), self.spn.encrypt(x ^ input_diff)) for x in X1_samples]
 
@@ -159,24 +161,29 @@ class DifferentialCryptanalysis:
             res[i] = None
         return res
 
-    def attack(self):
-        last_key = [None] * self.N_SBOX_PER_ROUND
+    def _differential_characteristic_generator(self):
         for start_input in self.promising_starts:
-            if None not in last_key:
-                break
             full_inputs = [start_input << i * self.SBOX_SIZE for i in range(self.N_SBOX_PER_ROUND)]
-            candidates = [self._greedy_differential_characteristic_and_probability(input_diff) for input_diff in full_inputs]
+            candidates = [self._greedy_differential_characteristic_and_probability(input_diff) for input_diff in
+                          full_inputs]
             input_diff, output_diff, probability = max(candidates, key=lambda t: t[2])
-            active_sbox_index = [index for index, diff in enumerate(self._chop_into_sbox_size(output_diff)) if
-                                 diff != 0]
-            if all([last_key[i] for i in active_sbox_index]):
-                continue
             if probability < .005:
                 continue
-            partial_keys = self._extract_partial_keys(input_diff)
-            for i, key in enumerate(partial_keys):
-                if (key is not None) and (last_key[i] is None):
-                    last_key[i] = key
+            else:
+                yield input_diff, output_diff, probability
+
+    def attack(self):
+        last_key = [None] * self.N_SBOX_PER_ROUND
+        diff_characteristics = self._differential_characteristic_generator()
+        while None in last_key:  # The subkeys are not fully decrypted
+            input_diff, output_diff, probability = next(diff_characteristics)
+            active_sbox_index = [index for index, diff in enumerate(self._chop_into_sbox_size(output_diff)) if
+                                 diff != 0]  # Output difference determine which sbox would be influenced.
+            if all([last_key[i] for i in
+                    active_sbox_index]):  # If all the active sboxes keys are known, this pair of characteristic is no use to us.
+                continue
+            partial_keys = self._extract_partial_keys(input_diff, output_diff, probability)
+            last_key = [k if k is not None else partial_keys[i] for i, k in enumerate(last_key)]
         return self._stitch_num_list(last_key)
 
 
